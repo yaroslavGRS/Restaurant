@@ -15,6 +15,7 @@ namespace RestaurantReservation.API.DTOs
         public DateTime CreatedAt { get; set; }
         public TableDto Table { get; set; }
         public UserDto User { get; set; }
+        public string Comments { get; set; }
     }
 
     public class CreateReservationDto
@@ -30,6 +31,8 @@ namespace RestaurantReservation.API.DTOs
 
         [Required]
         public TimeSpan TimeTo { get; set; }
+
+        public string Comments { get; set; }
     }
 
     public class UpdateReservationStatusDto

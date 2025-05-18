@@ -34,6 +34,8 @@ namespace RestaurantReservation.API.Models
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+        public string Comments { get; set; }
+
         // Navigation properties
         [ForeignKey("UserId")]
         public User User { get; set; }

@@ -102,5 +102,29 @@ namespace RestaurantReservation.API.Controllers
 
             return NoContent();
         }
+
+        [HttpDelete("{id}/force")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> ForceDeleteTable(int id)
+        {
+            var table = await _context.Tables
+                .Include(t => t.Reservations)
+                .FirstOrDefaultAsync(t => t.Id == id);
+
+            if (table == null)
+            {
+                return NotFound();
+            }
+
+            // Delete all reservations for this table
+            _context.Reservations.RemoveRange(table.Reservations);
+            
+            // Delete the table
+            _context.Tables.Remove(table);
+            
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
     }
 } 

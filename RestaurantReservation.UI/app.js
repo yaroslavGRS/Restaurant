@@ -85,7 +85,7 @@ function setupEventListeners() {
     });
 }
 
-// Initialize Bootstrap Modal
+// Initialize Bootstrap Modals
 document.addEventListener('DOMContentLoaded', function() {
     const modalElement = document.getElementById('reservationModal');
     if (modalElement) {
@@ -93,6 +93,12 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Modal initialized successfully');
     } else {
         console.error('Modal element not found');
+    }
+
+    // Initialize Add Table Modal
+    const addTableForm = document.getElementById('addTableForm');
+    if (addTableForm) {
+        addTableForm.addEventListener('submit', handleAddTable);
     }
 });
 
@@ -126,16 +132,55 @@ function showForm(formType) {
 // Authentication Functions
 function checkAuth() {
     const token = localStorage.getItem('token');
+    const userRole = localStorage.getItem('userRole');
+    const authSection = document.getElementById('authSection');
+    const mainContent = document.getElementById('mainContent');
+    const logoutItem = document.getElementById('logoutItem');
+    const heroSection = document.querySelector('.hero-section');
+    const addTableButton = document.querySelector('[data-bs-target="#addTableModal"]');
+    const deleteButtons = document.querySelectorAll('.delete-btn');
+    const reservationsTab = document.querySelector('[data-target="reservationsTab"]');
+    const reservationsHeader = document.querySelector('.reservations-header h2');
+    const statusFilter = document.getElementById('reservationStatusFilter');
+
     if (token) {
-        if (authSection) authSection.classList.add('d-none');
-        if (mainContent) mainContent.classList.remove('d-none');
+        authSection.classList.add('d-none');
+        mainContent.classList.remove('d-none');
         if (logoutItem) logoutItem.classList.remove('d-none');
         if (heroSection) heroSection.classList.add('d-none');
-        loadTables();
-        loadReservations();
+        
+        // Show/hide admin features based on role
+        const isAdmin = userRole === 'Admin';
+        if (addTableButton) {
+            addTableButton.style.display = isAdmin ? 'block' : 'none';
+        }
+        deleteButtons.forEach(btn => {
+            btn.style.display = isAdmin ? 'block' : 'none';
+        });
+
+        // Show/hide reservations tab based on user role
+        if (reservationsTab) {
+            if (isAdmin) {
+                reservationsTab.style.display = 'block';
+                reservationsTab.innerHTML = '<i class="fas fa-calendar-alt"></i> All Reservations';
+                if (reservationsHeader) reservationsHeader.textContent = 'All Reservations';
+                if (statusFilter) statusFilter.style.display = 'block';
+                // Load reservations for admin
+                const filterSelect = document.getElementById('reservationStatusFilter');
+                const currentFilter = filterSelect ? filterSelect.value : 'all';
+                loadAllReservations(currentFilter);
+            } else {
+                reservationsTab.style.display = 'none';
+                // Switch to tables tab if user is not admin
+                const tablesTab = document.querySelector('[data-target="tablesTab"]');
+                if (tablesTab) {
+                    tablesTab.click();
+                }
+            }
+        }
     } else {
-        if (authSection) authSection.classList.remove('d-none');
-        if (mainContent) mainContent.classList.add('d-none');
+        authSection.classList.remove('d-none');
+        mainContent.classList.add('d-none');
         if (logoutItem) logoutItem.classList.add('d-none');
         if (heroSection) heroSection.classList.remove('d-none');
     }
@@ -156,14 +201,26 @@ async function handleLogin(e) {
         });
 
         if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Login error response:', {
+                status: response.status,
+                statusText: response.statusText,
+                errorText: errorText
+            });
             throw new Error('Login failed');
         }
 
         const data = await response.json();
+        console.log('Login response data:', data);
+        
         localStorage.setItem('token', data.token);
+        localStorage.setItem('userRole', data.role);
+        console.log('Stored user role:', data.role);
+        
         checkAuth();
         showAlert('Login successful!', 'success');
     } catch (error) {
+        console.error('Login error:', error);
         showAlert(error.message, 'danger');
     }
 }
@@ -201,6 +258,7 @@ async function handleRegister(e) {
 
 function handleLogout() {
     localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
     checkAuth();
     showAlert('Logged out successfully', 'success');
 }
@@ -212,32 +270,106 @@ async function handleAddTable(e) {
     const seats = document.getElementById('tableSeats').value;
     const location = document.getElementById('tableLocation').value;
 
+    const token = localStorage.getItem('token');
+    console.log('Token for add table:', token ? 'exists' : 'missing');
+
     try {
         const response = await fetch(`${API_URL}/tables`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify({ number, seats, location })
         });
 
         if (!response.ok) {
-            const error = await response.text();
-            throw new Error(error || 'Failed to add table');
+            const errorText = await response.text();
+            console.error('Add table error response:', errorText);
+            throw new Error('Failed to add table');
         }
 
+        // Close the modal and reset the form
+        const modal = bootstrap.Modal.getInstance(document.getElementById('addTableModal'));
+        modal.hide();
         e.target.reset();
+
+        // Reload tables
         loadTables();
+        showAlert('Table added successfully', 'success');
     } catch (error) {
-        alert('Failed to add table: ' + error.message);
+        console.error('Error adding table:', error);
+        showAlert('Failed to add table', 'danger');
+    }
+}
+
+async function handleDeleteTable(tableId) {
+    // First try normal delete
+    const token = localStorage.getItem('token');
+    const userRole = localStorage.getItem('userRole');
+    console.log('Delete table - Token:', token ? 'exists' : 'missing');
+    console.log('Delete table - User role:', userRole);
+    console.log('Delete table - Table ID:', tableId);
+
+    try {
+        const response = await fetch(`${API_URL}/tables/${tableId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Delete table error response:', {
+                status: response.status,
+                statusText: response.statusText,
+                errorText: errorText
+            });
+            
+            if (errorText.includes('existing reservations')) {
+                // Show confirmation dialog for force delete
+                if (confirm('This table has active reservations. Do you want to delete it anyway? This will also delete all reservations for this table.')) {
+                    // Try force delete
+                    const forceResponse = await fetch(`${API_URL}/tables/${tableId}/force`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (!forceResponse.ok) {
+                        const forceErrorText = await forceResponse.text();
+                        throw new Error(`Failed to force delete table: ${forceErrorText}`);
+                    }
+
+                    loadTables();
+                    showAlert('Table and its reservations have been deleted successfully', 'success');
+                    return;
+                }
+                return;
+            }
+            
+            throw new Error(`Failed to delete table: ${errorText}`);
+        }
+
+        loadTables();
+        showAlert('Table deleted successfully', 'success');
+    } catch (error) {
+        console.error('Error deleting table:', error);
+        showAlert(error.message, 'danger');
     }
 }
 
 async function loadTables() {
     try {
+        const token = localStorage.getItem('token');
+        const userRole = localStorage.getItem('userRole');
+        const isAdmin = userRole === 'Admin';
+        console.log('Loading tables as:', isAdmin ? 'Admin' : 'User');
+
         const response = await fetch(`${API_URL}/tables`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            headers: { 'Authorization': `Bearer ${token}` }
         });
 
         if (!response.ok) throw new Error('Failed to load tables');
@@ -268,11 +400,18 @@ async function loadTables() {
                             </div>
                         </div>
 
-                        ${table.isAvailable ? `
-                            <button class="btn btn-primary reserve-btn" data-table-id="${table.id}">
-                                <i class="fas fa-calendar-plus"></i> Reserve Now
-                            </button>
-                        ` : ''}
+                        <div class="table-actions">
+                            ${table.isAvailable ? `
+                                <button class="btn btn-primary reserve-btn" data-table-id="${table.id}">
+                                    <i class="fas fa-calendar-plus"></i> Reserve Now
+                                </button>
+                            ` : ''}
+                            ${isAdmin ? `
+                                <button class="btn btn-danger delete-btn" onclick="handleDeleteTable(${table.id})">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            ` : ''}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -292,6 +431,7 @@ async function loadTables() {
         });
     } catch (error) {
         console.error('Error loading tables:', error);
+        showAlert('Failed to load tables', 'danger');
     }
 }
 
@@ -301,8 +441,10 @@ async function handleReservationSubmit(e) {
     const date = document.getElementById('reservationDate').value;
     const time = document.getElementById('reservationTime').value;
     const guests = document.getElementById('numberOfGuests').value;
+    const comments = document.getElementById('reservationComments').value;
 
     try {
+        console.log('Submitting reservation with comments:', comments);
         const response = await fetch(`${API_URL}/reservations`, {
             method: 'POST',
             headers: {
@@ -312,15 +454,21 @@ async function handleReservationSubmit(e) {
             body: JSON.stringify({
                 tableId: selectedTableId,
                 date,
-                time,
-                numberOfGuests: parseInt(guests)
+                timeFrom: time,
+                timeTo: time,
+                numberOfGuests: parseInt(guests),
+                comments: comments
             })
         });
 
         if (!response.ok) {
             const error = await response.text();
+            console.error('Reservation creation error:', error);
             throw new Error(error || 'Failed to create reservation');
         }
+
+        const result = await response.json();
+        console.log('Reservation created successfully:', result);
 
         reservationModal.hide();
         reservationForm.reset();
@@ -328,6 +476,7 @@ async function handleReservationSubmit(e) {
         loadReservations();
         showAlert('Reservation created successfully!', 'success');
     } catch (error) {
+        console.error('Error creating reservation:', error);
         showAlert(error.message, 'danger');
     }
 }
@@ -413,30 +562,80 @@ function getReservationStatus(status) {
 }
 
 async function cancelReservation(reservationId) {
-    if (!confirm('Are you sure you want to cancel this reservation?')) return;
+    // Створюємо модальне вікно підтвердження
+    const modalElement = document.createElement('div');
+    modalElement.className = 'modal fade';
+    modalElement.innerHTML = `
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Cancel Reservation</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Your reservation will be cancelled in 5 seconds.</p>
+                    <p class="text-muted">Click "Keep Reservation" to prevent cancellation.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" id="keepReservation">Keep Reservation</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modalElement);
 
+    // Ініціалізуємо модальне вікно
+    const modal = new bootstrap.Modal(modalElement);
+    modal.show();
+
+    // Встановлюємо таймер на 5 секунд
+    let timeLeft = 5;
+    const timerElement = modalElement.querySelector('.text-muted');
+    const timerInterval = setInterval(() => {
+        timeLeft--;
+        timerElement.textContent = `Click "Keep Reservation" to prevent cancellation. (${timeLeft} seconds left)`;
+        if (timeLeft <= 0) {
+            clearInterval(timerInterval);
+            modal.hide();
+            modalElement.remove();
+            // Автоматично скасовуємо резервацію
+            cancelReservationRequest(reservationId);
+        }
+    }, 1000);
+
+    // Обробляємо кнопку "Keep Reservation"
+    modalElement.querySelector('#keepReservation').addEventListener('click', () => {
+        clearInterval(timerInterval);
+        modal.hide();
+        modalElement.remove();
+    });
+
+    // Обробляємо закриття модального вікна
+    modalElement.addEventListener('hidden.bs.modal', () => {
+        clearInterval(timerInterval);
+        modalElement.remove();
+    });
+}
+
+// Допоміжна функція для скасування резервації
+async function cancelReservationRequest(reservationId) {
     try {
-        console.log('Cancelling reservation:', reservationId);
         const response = await fetch(`${API_URL}/reservations/${reservationId}/cancel`, {
             method: 'PUT',
             headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
         });
 
         if (!response.ok) {
-            const error = await response.text();
-            console.error('Failed to cancel reservation:', error);
             throw new Error('Failed to cancel reservation');
         }
 
-        console.log('Reservation cancelled successfully');
-        // Оновлюємо обидва списки
+        showAlert('Reservation cancelled successfully', 'success');
         await Promise.all([
             loadReservations(),
             loadTables()
         ]);
     } catch (error) {
-        console.error('Error cancelling reservation:', error);
-        alert('Failed to cancel reservation: ' + error.message);
+        showAlert(error.message, 'danger');
     }
 }
 
@@ -449,23 +648,231 @@ function switchAuthForm(form) {
 }
 
 function switchTab(tab) {
-    navTabs.forEach(t => t.classList.remove('active'));
-    document.querySelector(`[data-target="${tab}"]`).classList.add('active');
+    // Оновлюємо активну вкладку
+    navTabs.forEach(t => {
+        if (t.getAttribute('data-target') === tab) {
+            t.classList.add('active');
+        } else {
+            t.classList.remove('active');
+        }
+    });
     
-    const tabContents = document.querySelectorAll('.tab-content');
-    tabContents.forEach(content => content.classList.add('d-none'));
-    document.getElementById(tab).classList.remove('d-none');
+    // Оновлюємо відображення контенту
+    const tabContents = document.querySelectorAll('.tab-pane');
+    tabContents.forEach(content => {
+        if (content.id === tab) {
+            content.classList.add('active');
+        } else {
+            content.classList.remove('active');
+        }
+    });
+
+    // Завантажуємо дані для відповідної вкладки
+    if (tab === 'tablesTab') {
+        loadTables();
+    } else if (tab === 'reservationsTab') {
+        loadReservations();
+    }
 }
 
 function showAlert(message, type) {
+    // Видаляємо попередні сповіщення
+    const existingAlerts = document.querySelectorAll('.alert-container');
+    existingAlerts.forEach(alert => alert.remove());
+
+    // Створюємо контейнер для сповіщення
+    const alertContainer = document.createElement('div');
+    alertContainer.className = 'alert-container';
+    
+    // Створюємо сповіщення
     const alertDiv = document.createElement('div');
     alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
     alertDiv.innerHTML = `
         ${message}
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     `;
-    document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.container').firstChild);
-    setTimeout(() => alertDiv.remove(), 5000);
+    
+    // Додаємо сповіщення в контейнер
+    alertContainer.appendChild(alertDiv);
+    document.body.appendChild(alertContainer);
+
+    // Автоматично видаляємо через 5 секунд
+    setTimeout(() => {
+        alertContainer.remove();
+    }, 5000);
+}
+
+// Add event listener for status filter
+document.getElementById('reservationStatusFilter').addEventListener('change', function(e) {
+    const selectedStatus = e.target.value;
+    loadAllReservations(selectedStatus);
+});
+
+// Function to load all reservations
+async function loadAllReservations(filterStatus = 'all') {
+    try {
+        const token = localStorage.getItem('token');
+        const userRole = localStorage.getItem('userRole');
+        
+        // Only allow admin to view reservations
+        if (userRole !== 'Admin') {
+            return;
+        }
+
+        const response = await fetch(`${API_URL}/reservations`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to load reservations');
+        }
+
+        const reservations = await response.json();
+        console.log('Loaded reservations:', reservations);
+
+        const container = document.getElementById('reservationsContainer');
+        container.innerHTML = '';
+
+        if (reservations.length === 0) {
+            container.innerHTML = '<div class="alert alert-info">No reservations found</div>';
+            return;
+        }
+
+        // Filter reservations based on selected status
+        const filteredReservations = reservations.filter(reservation => {
+            const status = getReservationStatus(reservation.status);
+            return filterStatus === 'all' || status.toLowerCase() === filterStatus;
+        });
+
+        console.log('Filtered reservations:', filteredReservations);
+
+        if (filteredReservations.length === 0) {
+            container.innerHTML = `<div class="alert alert-info">No ${filterStatus} reservations found</div>`;
+            return;
+        }
+
+        // Create cards for filtered reservations
+        filteredReservations.forEach(reservation => {
+            console.log('Processing reservation:', reservation);
+            const card = document.createElement('div');
+            const status = getReservationStatus(reservation.status);
+            const statusLower = status.toLowerCase();
+            card.className = `reservation-card ${statusLower}`;
+            
+            const statusClass = {
+                'Pending': 'warning',
+                'Cancelled': 'danger'
+            }[status] || 'secondary';
+
+            const commentsHtml = reservation.comments ? `
+                <div class="reservation-comments mt-3">
+                    <p class="mb-1"><i class="fas fa-comment"></i> User Comments:</p>
+                    <p class="comments-text">${reservation.comments}</p>
+                </div>
+            ` : `
+                <div class="reservation-comments mt-3">
+                    <p class="text-muted"><i class="fas fa-comment-slash"></i> No comments from user</p>
+                </div>
+            `;
+
+            card.innerHTML = `
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div>
+                            <h5 class="card-title">
+                                <i class="fas fa-table"></i> Table ${reservation.table?.number || 'N/A'}
+                            </h5>
+                            <p class="card-text">
+                                <i class="fas fa-user"></i> User ID: ${reservation.userId}
+                            </p>
+                        </div>
+                        <span class="badge bg-${statusClass}">${status}</span>
+                    </div>
+                    <div class="reservation-details">
+                        <p><i class="fas fa-calendar"></i> ${new Date(reservation.date).toLocaleDateString()}</p>
+                        <p><i class="fas fa-clock"></i> ${reservation.timeFrom}</p>
+                        <p><i class="fas fa-users"></i> ${reservation.numberOfGuests} guests</p>
+                        ${commentsHtml}
+                    </div>
+                    <div class="reservation-actions mt-3">
+                        ${status === 'Pending' ? `
+                            <button class="btn btn-success btn-sm me-2" onclick="updateReservationStatus(${reservation.id}, 'Confirmed')">
+                                <i class="fas fa-check"></i> Confirm
+                            </button>
+                            <button class="btn btn-danger btn-sm" onclick="updateReservationStatus(${reservation.id}, 'Cancelled')">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+            container.appendChild(card);
+        });
+    } catch (error) {
+        console.error('Error loading reservations:', error);
+        showAlert('Failed to load reservations', 'danger');
+    }
+}
+
+// Function to update reservation status
+async function updateReservationStatus(reservationId, newStatus) {
+    try {
+        const statusValue = {
+            'Confirmed': 1,
+            'Cancelled': 2
+        }[newStatus] || 0;
+
+        const response = await fetch(`${API_URL}/reservations/${reservationId}/status`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({ status: statusValue })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to update reservation status');
+        }
+
+        // If the reservation is confirmed, update the table status
+        if (newStatus === 'Confirmed') {
+            // Get the reservation details to find the table ID
+            const reservationResponse = await fetch(`${API_URL}/reservations/${reservationId}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (reservationResponse.ok) {
+                const reservation = await reservationResponse.json();
+                if (reservation.tableId) {
+                    // Update the table status to available
+                    await fetch(`${API_URL}/tables/${reservation.tableId}/status`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        },
+                        body: JSON.stringify({ isAvailable: true })
+                    });
+                }
+            }
+        }
+
+        showAlert(`Reservation ${newStatus.toLowerCase()} successfully`, 'success');
+        
+        // Reload both reservations and tables
+        await Promise.all([
+            loadAllReservations(),
+            loadTables()
+        ]);
+    } catch (error) {
+        console.error('Error updating reservation status:', error);
+        showAlert('Failed to update reservation status', 'danger');
+    }
 }
 
 // Initialize
