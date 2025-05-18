@@ -652,7 +652,7 @@ async function cancelReservation(reservationId) {
             throw new Error('Failed to cancel reservation');
         }
 
-        showAlert('Reservation cancelled successfully', 'success');
+        showAlert('Reservation cancelled', 'success');
         
         // Reload both reservations and tables
         await Promise.all([
@@ -970,7 +970,7 @@ async function loadUserReservations() {
                                     </div>
                                 ` : `
                                     <div class="alert alert-danger">
-                                        <i class="fas fa-times-circle"></i> Your reservation has been cancelled by the restaurant.
+                                        <i class="fas fa-times-circle"></i> Reservation cancelled
                                     </div>
                                 `}
                             </div>
