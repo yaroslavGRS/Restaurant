@@ -777,7 +777,14 @@ async function loadAllReservations(filterStatus = 'all') {
             return filterStatus === 'all' || status.toLowerCase() === filterStatus;
         });
 
-        console.log('Filtered reservations:', filteredReservations);
+        // Sort filtered reservations by date (newest first)
+        filteredReservations.sort((a, b) => {
+            const dateA = new Date(a.date + 'T' + a.timeFrom);
+            const dateB = new Date(b.date + 'T' + b.timeFrom);
+            return dateB - dateA;
+        });
+
+        console.log('Filtered and sorted reservations:', filteredReservations);
 
         if (filteredReservations.length === 0) {
             container.innerHTML = `<div class="alert alert-info">No ${filterStatus} reservations found</div>`;
@@ -816,7 +823,7 @@ async function loadAllReservations(filterStatus = 'all') {
                                 <i class="fas fa-table"></i> Table ${reservation.table?.number || 'N/A'}
                             </h5>
                             <p class="card-text">
-                                <i class="fas fa-user"></i> User ID: ${reservation.userId}
+                                <i class="fas fa-user"></i> User: ${reservation.user?.email || 'N/A'}
                             </p>
                         </div>
                         <span class="badge bg-${statusClass}">${status}</span>
@@ -824,7 +831,6 @@ async function loadAllReservations(filterStatus = 'all') {
                     <div class="reservation-details">
                         <p><i class="fas fa-calendar"></i> ${new Date(reservation.date).toLocaleDateString()}</p>
                         <p><i class="fas fa-clock"></i> ${reservation.timeFrom}</p>
-                        <p><i class="fas fa-users"></i> ${reservation.numberOfGuests} guests</p>
                         ${commentsHtml}
                     </div>
                     <div class="reservation-actions mt-3">
@@ -930,6 +936,13 @@ async function loadUserReservations() {
             return;
         }
 
+        // Sort reservations by date and time (newest first)
+        reservations.sort((a, b) => {
+            const dateA = new Date(a.date + 'T' + a.timeFrom);
+            const dateB = new Date(b.date + 'T' + b.timeFrom);
+            return dateB - dateA;
+        });
+
         container.innerHTML = reservations.map(reservation => {
             const status = getReservationStatus(reservation.status);
             const statusClass = {
@@ -950,7 +963,6 @@ async function loadUserReservations() {
                             </div>
                             <div class="reservation-details">
                                 <p><i class="fas fa-chair"></i> Table ${reservation.table?.number || 'N/A'}</p>
-                                <p><i class="fas fa-users"></i> ${reservation.numberOfGuests} guests</p>
                                 <p><i class="fas fa-clock"></i> ${new Date(reservation.date).toLocaleDateString()} at ${reservation.timeFrom}</p>
                                 ${reservation.comments ? `
                                     <div class="reservation-comments mt-3">
